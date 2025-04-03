@@ -16,6 +16,7 @@ export default function ListItem() {
   const router = useRouter();
   const [isListing, setisListing] = useState(false);
   const [file, setFile] = useState();
+  const [nftImage, setNftImage] = useState();
   const [formData, setFormData] = useState({
     price: "",
     name: "",
@@ -24,24 +25,22 @@ export default function ListItem() {
 
   // Onchange of image file
   const onChange = async (e) => {
-    const fileData = e.target.files[0];
     try {
-      const add = await client.add(fileData, {
-        progress: (prog) => console.log("Image is uploaded : ", prog),
-      });
-      const url = `https://ipfs.infura.io/ipfs/${add.path}`;
-      setFile(url);
+      const fileData = e.target.files[0];
+      setNftImage(fileData);
+      // const add = await client.add(fileData, {
+      //   progress: (prog) => console.log("Image is uploaded : ", prog),
+      // });
+      // const url = `https://ipfs.infura.io/ipfs/${add.path}`;
+      // setFile(url);
     } catch (error) {
-      console.log(
-        "Error in onChange function , You are in catch of ListItem component ",
-        error
-      );
+      setNftImage(null);
+      console.log("Error in onChange function , You are in catch of ListItem component ", error);
     }
   };
 
   // Main function to list an item. First it mint an NFT and then List an nft.
   const createItem = async (url) => {
-    setisListing(true)
     const web3Modal = new Web3Modal();
     const connection = await web3Modal.connect();
     const provider = new ethers.providers.Web3Provider(connection);
@@ -57,45 +56,54 @@ export default function ListItem() {
     let tokenId = value.toNumber();
 
     let convertedPrice = ethers.utils.parseUnits(formData.price, "ether");
-    const nftMarketPlaceContract = new ethers.Contract(
-      nftMarketplaceAddress,
-      NFTMarketplaceAbi.abi,
-      signer
-    );
+    const nftMarketPlaceContract = new ethers.Contract(nftMarketplaceAddress, NFTMarketplaceAbi.abi, signer);
 
     const listingPrice = await nftMarketPlaceContract.getListingPrice();
     listingPrice = await listingPrice.toString();
-    let listingTx = await nftMarketPlaceContract.listItem(
-      nftAddress,
-      tokenId,
-      convertedPrice,
-      { value: listingPrice }
-    );
+    let listingTx = await nftMarketPlaceContract.listItem(nftAddress, tokenId, convertedPrice, { value: listingPrice });
     await listingTx.wait();
-    
-    router.push("/");
-    setisListing(false)
   };
 
   const listAnItem = async () => {
-    setisListing(true)
+    setisListing(true);
     const { name, price, description } = formData;
-    if (!name || !price || !description || !file) {
+    if (!name || !price || !description || !nftImage) {
       console.log("Some feild are missing");
-      setisListing(false)
+      setisListing(false);
       return;
     }
 
-    const data = JSON.stringify({ name, description, image: file });
     try {
-      const add = await client.add(data);
-      const url = `https://ipfs.infura.io/ipfs/${add.path}`;
-      createItem(url);
+      const formData = new FormData();
+      formData.append("image", nftImage);
+      const imageRes = await fetch("http://localhost:3030/upload/image", {
+        method: "POST",
+        body: formData,
+      });
+
+      const imageData = await imageRes.json();
+      console.log("Image response : ", imageData);
+      const imageUrl = imageData.url;
+
+      const metadataRes = await fetch("http://localhost:3030/upload/metadata", {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, description, image: imageUrl }),
+      });
+
+      const metadataData = await metadataRes.json();
+      console.log("Metadata response : ", metadataData);
+      const url = metadataData.url;
+
+      await createItem(url);
+      setisListing(false);
+      router.push("/");
     } catch (error) {
-      console.log(
-        "Error in listAnItem function , You are in catch of listAnItem function ",
-        error
-      );
+      console.log("Error in listAnItem function , You are in catch of listAnItem function ", error);
+      setisListing(false);
     }
   };
 
@@ -114,9 +122,7 @@ export default function ListItem() {
           id="description"
           placeholder="e.g.This is most unique monkey in the world."
           label="Description"
-          onChange={(e) =>
-            setFormData({ ...formData, description: e.target.value })
-          }
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
         />
         <Input
           id="price"
@@ -133,24 +139,21 @@ export default function ListItem() {
           placeholder="Choose image file"
           label="NFT Image"
           type="file"
+          accept="image/*"
           onChange={onChange}
         />
         <div className="">
-          {file && (
-            <img
-              className="rounded-xl mt-4 mb-10 w-96"
-              src={file}
-              alt="Choosen image"
-            />
+          {nftImage && (
+            <img className="rounded-xl mt-4 mb-10 w-96" src={URL.createObjectURL(nftImage)} alt="Choosen image" />
           )}
         </div>
-          <BtnMain
-            text="List NFT"
-            icon={<AiOutlineArrowUp className="text-2xl" />}
-            className="w-full text-lg"
-            onClick={listAnItem}
-            disabled={isListing}
-          />
+        <BtnMain
+          text="List NFT"
+          icon={<AiOutlineArrowUp className="text-2xl" />}
+          className="w-full text-lg"
+          onClick={listAnItem}
+          disabled={isListing}
+        />
       </div>
     </div>
   );
